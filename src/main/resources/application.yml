@@ -1,0 +1,39 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: messenger-backend
+
+  datasource:
+    # Можно переопределить через переменные окружения DB_URL / DB_USERNAME / DB_PASSWORD,
+    # не трогая этот файл.
+    #
+    # Дефолтный инстанс SQL Server:    jdbc:sqlserver://localhost:1433;databaseName=messenger;encrypt=true;trustServerCertificate=true
+    # Именованный инстанс (SQLEXPRESS): jdbc:sqlserver://localhost\SQLEXPRESS;databaseName=messenger;encrypt=true;trustServerCertificate=true
+    url: ${DB_URL:jdbc:sqlserver://localhost:1433;databaseName=messenger;encrypt=true;trustServerCertificate=true}
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    username: ${DB_USERNAME:messenger_app}
+    password: ${DB_PASSWORD:StrongPass123!}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.SQLServerDialect
+    open-in-view: false
+
+app:
+  jwt:
+    # ВАЖНО: смените секрет в проде и вынесите в переменные окружения
+    secret: "change-this-super-secret-key-messenger-jwt-please-min-32-bytes"
+    access-token-ttl-minutes: 60
+    refresh-token-ttl-days: 30
+
+logging:
+  level:
+    org.springframework.web.socket: INFO
+    com.messenger: DEBUG

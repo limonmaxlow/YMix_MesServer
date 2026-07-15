@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "MessengerBackendApplication",
+      "request": "launch",
+      "mainClass": "com.messenger.MessengerBackendApplication",
+      "projectName": "messenger-backend",
+      "env": {
+        "DB_URL": "jdbc:sqlserver://localhost:1433;databaseName=messenger;encrypt=true;trustServerCertificate=true",
+        "DB_USERNAME": "messenger_app",
+        "DB_PASSWORD": "StrongPass123!"
+      }
+    }
+  ]
+}
