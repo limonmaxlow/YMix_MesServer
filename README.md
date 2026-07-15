@@ -1,104 +1,156 @@
-# Messenger Backend (Java 21 + Spring Boot + WebSocket/STOMP)
+# Y MIX — Backend
 
-Бэкенд для мессенджера: авторизация (JWT), список личных чатов, обмен сообщениями в реальном времени.
+## О проекте
 
-## Стек
-- Java 21, Spring Boot 3.3
-- Spring Security + JWT (jjwt)
-- Spring WebSocket + STOMP (совместимо с `stomp_dart_client` во Flutter)
-- Spring Data JPA + **Microsoft SQL Server** (драйвер `mssql-jdbc`)
+**Y MIX Backend** — серверная часть мессенджера Y MIX: REST API + WebSocket
+(STOMP) сервер на Spring Boot, обслуживающий Flutter-клиент. Отвечает за
+регистрацию и авторизацию пользователей, хранение переписки, список чатов
+и доставку сообщений в реальном времени.
+
+Реализовано:
+- Регистрация и вход по логину/паролю, авторизация через JWT (access-токен).
+- Личные (1-на-1) чаты: создание/получение, список чатов пользователя с
+  последним сообщением и счётчиком непрочитанных.
+- Поиск пользователей для начала нового чата.
+- История сообщений с пагинацией.
+- Обмен сообщениями в реальном времени по WebSocket/STOMP, включая
+  персональные уведомления об обновлении списка чатов.
+- Отметка чата как прочитанного.
+
+**Стек:** Java 21 · Spring Boot 3.3 · Spring Security + JWT (jjwt) ·
+Spring WebSocket/STOMP · Spring Data JPA · Microsoft SQL Server
+(`mssql-jdbc`) · Lombok · Maven.
+
+---
+
+## Структура проекта
+
+```
+src/main/java/com/messenger/
+├── MessengerBackendApplication.java   # точка входа
+├── config/         # Security, JWT-фильтр, WebSocket, STOMP auth
+├── controller/      # REST-контроллеры (auth, users, chats)
+├── domain/          # JPA-сущности: User, Chat, ChatParticipant, Message...
+├── dto/             # DTO для запросов/ответов
+├── exception/        # ApiException + глобальный обработчик ошибок
+├── repository/       # Spring Data JPA репозитории
+├── security/         # JwtService, UserDetailsService, UserPrincipal
+├── service/          # бизнес-логика: AuthService, ChatService, MessageService
+└── ws/               # ChatWebSocketController — STOMP-обработчик сообщений
+
+src/main/resources/application.yml   # конфигурация (БД, JWT, логирование)
+docker-compose.yml                    # опциональный SQL Server в Docker
+init-db.sql                           # создание БД и пользователя
+```
+
+---
 
 ## Запуск на Windows 11 (свой установленный SQL Server)
 
 ### 1. Создать базу и пользователя
-Откройте `init-db.sql` в SSMS / Azure Data Studio (или вставьте туда, где обычно пишете запросы) и выполните под учёткой-администратором. Скрипт создаёт БД `messenger`, логин `messenger_app` и выдаёт ему права на эту БД.
+Откройте `init-db.sql` в SSMS / Azure Data Studio под учёткой-администратором
+и выполните. Скрипт создаёт БД `messenger`, логин `messenger_app` и выдаёт
+ему права на эту БД.
 
 ### 2. Проверить TCP/IP и порт
-Если SQL Server стоял "из коробки" (особенно Express-редакция), TCP/IP может быть выключен:
+Если SQL Server стоял «из коробки» (особенно Express-редакция), TCP/IP может
+быть выключен:
 - **Пуск → SQL Server Configuration Manager**
-- `SQL Server Network Configuration` → `Protocols for <ИмяИнстанса>` → `TCP/IP` → **Enabled**
-- Вкладка `IP Addresses` → низ списка `IPAll` → `TCP Port` (обычно `1433`)
-- Если меняли что-то — перезапустите службу SQL Server (`SQL Server (MSSQLSERVER)` в `Службы Windows`, или через ту же Configuration Manager)
+- `SQL Server Network Configuration` → `Protocols for <ИмяИнстанса>` →
+  `TCP/IP` → **Enabled**
+- Вкладка `IP Addresses` → внизу `IPAll` → `TCP Port` (обычно `1433`)
+- После изменений перезапустите службу SQL Server
 
-Если у вас **именованный инстанс** (например `localhost\SQLEXPRESS`), поменяйте `DB_URL` (см. ниже) на `jdbc:sqlserver://localhost\SQLEXPRESS;databaseName=messenger;...` — порт в этом случае обычно не нужен.
+Если у вас **именованный инстанс** (например `localhost\SQLEXPRESS`),
+измените `DB_URL` на `jdbc:sqlserver://localhost\SQLEXPRESS;databaseName=messenger;...`
+— порт в этом случае обычно не нужен.
 
 ### 3. Настроить строку подключения
-По умолчанию `application.yml` уже указывает на `localhost:1433`, пользователя `messenger_app` и пароль `StrongPass123!` — если вы использовали `init-db.sql` как есть, менять ничего не нужно.
+По умолчанию `application.yml` уже указывает на `localhost:1433`,
+пользователя `messenger_app` и пароль `StrongPass123!` — если использовали
+`init-db.sql` как есть, менять ничего не нужно.
 
-Если хотите другие значения — не редактируйте `application.yml`, а задайте переменные окружения перед запуском (PowerShell):
+Для других значений задайте переменные окружения перед запуском
+(PowerShell), не редактируя `application.yml`:
 ```powershell
 $env:DB_URL = "jdbc:sqlserver://localhost\SQLEXPRESS;databaseName=messenger;encrypt=true;trustServerCertificate=true"
 $env:DB_USERNAME = "messenger_app"
 $env:DB_PASSWORD = "StrongPass123!"
 ```
 
-### 4. Установить JDK 21 и Maven (если ещё нет)
+### 4. Установить JDK 21 и Maven
 Проверить, что уже стоит:
 ```powershell
 java -version
 mvn -version
 ```
-Если нет — проще всего через [winget](https://learn.microsoft.com/windows/package-manager/winget/) или choco:
+Если нет:
 ```powershell
 winget install Microsoft.OpenJDK.21
 winget install Apache.Maven
 ```
-После установки откройте новое окно PowerShell (чтобы подтянулся `PATH`).
+После установки откройте новое окно PowerShell, чтобы подтянулся `PATH`.
 
 ### 5. Запустить бэкенд
-Распакуйте архив, откройте PowerShell в папке `messenger-backend` и выполните:
+В папке `messenger-backend`:
 ```powershell
 mvn spring-boot:run
 ```
-Первый запуск скачает зависимости — может занять пару минут. Дальше Hibernate сам создаст таблицы в БД `messenger` (`ddl-auto: update`).
+Первый запуск скачает зависимости — может занять пару минут. Hibernate сам
+создаст таблицы в БД `messenger` (`ddl-auto: update`).
 
-Сервер поднимется на `http://localhost:8080`. Проверить, что всё работает:
+Сервер поднимется на `http://localhost:8080`. Проверка:
 ```powershell
 curl.exe -X POST http://localhost:8080/api/auth/register `
   -H "Content-Type: application/json" `
   -d '{\"username\":\"ivan\",\"password\":\"123456\",\"displayName\":\"Иван\"}'
 ```
-Если в ответе пришёл `accessToken` — бэкенд поднят и подключён к вашему SQL Server.
+Если в ответе пришёл `accessToken` — бэкенд поднят и подключён к SQL Server.
 
-> Если ловите ошибку подключения (`The TCP/IP connection to the host has failed` / `Login failed`) — почти всегда это или выключенный TCP/IP (шаг 2), или неверный логин/пароль/имя инстанса (шаг 3). Firewall Windows тоже может блокировать порт 1433 — при необходимости добавьте разрешающее правило.
+> Ошибка подключения (`The TCP/IP connection to the host has failed` /
+> `Login failed`) почти всегда означает выключенный TCP/IP (шаг 2) или
+> неверные логин/пароль/имя инстанса (шаг 3). Также проверьте, не блокирует
+> ли брандмауэр Windows порт 1433.
 
 ---
 
 ## Запуск в VS Code
 
 ### 1. Расширения (один раз)
-Установите (Extensions → поиск):
-- **Extension Pack for Java** (от Microsoft) — Maven-проект, компиляция, дебаг
-- **Spring Boot Extension Pack** (от VMware/Broadcom) — даёт Spring Boot Dashboard и подсветку `application.yml`
+- **Extension Pack for Java** (Microsoft)
+- **Spring Boot Extension Pack** (VMware/Broadcom)
 
 ### 2. Открыть проект
-`File → Open Folder…` → выберите папку `messenger-backend` (ту, что внутри распакованного архива — там, где лежит `pom.xml`).
+`File → Open Folder…` → папка `messenger-backend` (там, где лежит `pom.xml`).
+Дождитесь, пока в статус-баре пройдёт «Importing Java projects…» — Maven
+подтягивает зависимости.
 
-Подождите, пока в статус-баре внизу пройдёт «Importing Java projects…» / «Building workspace» — это Maven-расширение подтягивает зависимости (первый раз может занять пару минут).
+### 3. Запустить (любой способ)
+- Откройте `MessengerBackendApplication.java` → над методом `main` нажмите
+  `Run` (или `Debug`)
+- Или через **Spring Boot Dashboard** (иконка листика слева) → ▶️
+- Или через терминал: `mvn spring-boot:run`
 
-### 3. Запустить
-Любой из трёх вариантов — все делают одно и то же:
+В `.vscode/launch.json` уже прописаны переменные окружения для БД — при
+другом инстансе/пароле поправьте их там.
 
-- **Через код**: откройте `src/main/java/com/messenger/MessengerBackendApplication.java`, над методом `main` появится ссылка `Run | Debug` — нажмите `Run` (или `Debug`, если хотите ставить breakpoints)
-- **Через Spring Boot Dashboard**: иконка листика в левой панели → в списке `messenger-backend` → кнопка ▶️ рядом
-- **Через встроенный терминал** (`` Ctrl+` ``): `mvn spring-boot:run`
-
-В `.vscode/launch.json` (уже в архиве) прописаны переменные окружения для подключения к БД (`DB_URL`/`DB_USERNAME`/`DB_PASSWORD`) — совпадают со значениями из `init-db.sql`. Если у вас именованный инстанс SQL Server или другой пароль — поправьте их прямо в этом файле, тогда режимы `Run`/`Debug` из VS Code подхватят правильные настройки.
-
-> Если запускаете через терминал (`mvn spring-boot:run`) вместо `Run`/`Debug` из редактора — `launch.json` не используется, задайте переменные окружения в самом терминале (см. шаг 3 в разделе выше) или просто оставьте значения по умолчанию из `application.yml`.
-
-Готово: сервер поднимется на `http://localhost:8080`, консоль вывода — во вкладке `DEBUG CONSOLE` (или `TERMINAL`, если запускали через `mvn`). Остановить — красный квадратик ⏹ на панели отладки или `Ctrl+C` в терминале.
+Сервер поднимется на `http://localhost:8080`. Остановить — ⏹ на панели
+отладки или `Ctrl+C` в терминале.
 
 ---
 
 <details>
-<summary>Альтернатива: поднять SQL Server через Docker (если решите не использовать локально установленный)</summary>
+<summary>Альтернатива: SQL Server через Docker</summary>
 
 ```bash
 docker compose up -d
 ```
-Поднимет SQL Server 2022 на `localhost:1433`, `sa` / `YourStrong!Passw0rd` — см. `docker-compose.yml`. В этом случае используйте `init-db.sql` так же, как описано выше, либо прогоните его через `sqlcmd` внутри контейнера.
+Поднимет SQL Server 2022 на `localhost:1433`, `sa` / `YourStrong!Passw0rd` —
+см. `docker-compose.yml`. Далее используйте `init-db.sql` так же, как
+описано выше (например, через `sqlcmd` внутри контейнера).
 </details>
+
+---
 
 ## REST API
 
@@ -127,24 +179,29 @@ POST /api/auth/login
 GET /api/users/search?q=iv    -> поиск пользователей для создания чата
 ```
 
-### Чаты (меню)
+### Чаты
 ```
-GET  /api/chats                        -> список чатов текущего пользователя
-POST /api/chats/private                -> создать/получить личный чат
+GET  /api/chats                                    -> список чатов текущего пользователя
+POST /api/chats/private                             -> создать/получить личный чат
      { "username": "petya" }
-GET  /api/chats/{chatId}/messages?page=0&size=30   -> история сообщений (новые сначала)
-POST /api/chats/{chatId}/read          -> отметить прочитанным
+GET  /api/chats/{chatId}/messages?page=0&size=30    -> история сообщений (новые сначала)
+POST /api/chats/{chatId}/read                        -> отметить прочитанным
      { "lastReadMessageId": 42 }
 ```
 
-`ChatDto` содержит `otherUser` (собеседник), `lastMessageText`, `lastMessageAt`, `unreadCount` — этого достаточно, чтобы отрисовать список чатов в Flutter одним запросом.
+`ChatDto` содержит `otherUser`, `lastMessageText`, `lastMessageAt`,
+`unreadCount` — этого достаточно, чтобы отрисовать список чатов одним
+запросом.
+
+---
 
 ## WebSocket (STOMP)
 
-Endpoint: `ws://localhost:8080/ws` (raw STOMP over WebSocket — подходит для `stomp_dart_client`).
-Для отладки из браузера есть SockJS-вариант: `http://localhost:8080/ws-sockjs`.
+Endpoint: `ws://localhost:8080/ws` (raw STOMP, подходит для
+`stomp_dart_client`). Для отладки из браузера — SockJS-вариант:
+`http://localhost:8080/ws-sockjs`.
 
-При подключении (STOMP CONNECT) нужно передать заголовок:
+При STOMP CONNECT нужно передать заголовок:
 ```
 Authorization: Bearer <accessToken>
 ```
@@ -156,12 +213,11 @@ Authorization: Bearer <accessToken>
 ```
 
 ### Получение сообщений
-1. Подписаться на топик конкретного открытого чата (пока он открыт на экране):
-   `/topic/chat.{chatId}` — прилетают все новые сообщения этого чата.
-2. Подписаться на личную очередь для обновления списка чатов (даже если чат не открыт):
-   `/user/queue/chats` — прилетает обновлённый `ChatDto` (последнее сообщение, счётчик непрочитанных) при получении нового сообщения в любом из чатов пользователя.
+1. `/topic/chat.{chatId}` — новые сообщения открытого чата.
+2. `/user/queue/chats` — обновлённый `ChatDto` (последнее сообщение,
+   счётчик непрочитанных) при получении сообщения в любом чате пользователя.
 
-Пример на псевдо-Dart (`stomp_dart_client`):
+Пример на Dart (`stomp_dart_client`):
 ```dart
 StompClient(
   config: StompConfig(
@@ -170,11 +226,11 @@ StompClient(
     onConnect: (frame) {
       stompClient.subscribe(
         destination: '/user/queue/chats',
-        callback: (frame) => print(frame.body), // обновление списка чатов
+        callback: (frame) => print(frame.body),
       );
       stompClient.subscribe(
         destination: '/topic/chat.$chatId',
-        callback: (frame) => print(frame.body), // новое сообщение в открытом чате
+        callback: (frame) => print(frame.body),
       );
     },
   ),
@@ -186,14 +242,21 @@ stompClient.send(
 );
 ```
 
-## Что дальше (не реализовано, но легко добавить на этой базе)
+---
+
+## Что дальше (не реализовано, но легко добавить)
 - Групповые чаты (`ChatType.GROUP`, добавление/удаление участников)
-- Онлайн-статусы через WS (событие подключения/отключения, поле `User.online`)
+- Онлайн-статусы через WS (события подключения/отключения, поле `User.online`)
 - Push-уведомления, вложения/файлы, редактирование/удаление сообщений
-- Refresh-токены (сейчас только access-токен на 60 минут — см. `app.jwt` в `application.yml`)
+- Refresh-токены (сейчас только access-токен на 60 минут — см. `app.jwt`
+  в `application.yml`)
 
 ## Важно перед продакшеном
-- Смените `app.jwt.secret` в `application.yml` на свой секрет (вынесите в переменную окружения)
-- Смените пароль `messenger_app` в SQL Server и вынесите креды датасорса в переменные окружения (`DB_URL`/`DB_USERNAME`/`DB_PASSWORD`)
-- Сузьте CORS (`SecurityConfig.corsConfigurationSource`) до реальных адресов клиента
-- Для теста/CI можно оставить H2 (уже добавлена в `pom.xml` со `scope=test`) и настроить отдельный `application-test.yml`
+- Смените `app.jwt.secret` на свой секрет и вынесите его в переменную
+  окружения
+- Смените пароль `messenger_app` в SQL Server, вынесите креды датасорса в
+  переменные окружения (`DB_URL`/`DB_USERNAME`/`DB_PASSWORD`)
+- Сузьте CORS (`SecurityConfig.corsConfigurationSource`) до реальных
+  адресов клиента
+- Для теста/CI можно оставить H2 (уже в `pom.xml`, `scope=test`) и настроить
+  отдельный `application-test.yml`
